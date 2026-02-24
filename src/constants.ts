@@ -3,11 +3,11 @@ export const GAME_WIDTH = 800;
 export const GAME_HEIGHT = 600;
 
 export const TOWER_POSITIONS = [
-  { id: 0, x: 40, y: 560, maxAmmo: 100 },
-  { id: 1, x: 220, y: 560, maxAmmo: 100 },
-  { id: 2, x: 400, y: 560, maxAmmo: 100 },
-  { id: 3, x: 580, y: 560, maxAmmo: 100 },
-  { id: 4, x: 760, y: 560, maxAmmo: 100 },
+  { id: 0, x: 40, y: 560, maxAmmo: 300 },
+  { id: 1, x: 220, y: 560, maxAmmo: 300 },
+  { id: 2, x: 400, y: 560, maxAmmo: 300 },
+  { id: 3, x: 580, y: 560, maxAmmo: 300 },
+  { id: 4, x: 760, y: 560, maxAmmo: 300 },
 ];
 
 export const CITY_POSITIONS = [

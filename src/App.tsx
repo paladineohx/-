@@ -53,9 +53,17 @@ export default function App() {
   const scoreRef = useRef(0);
   const requestRef = useRef<number>(null);
 
-  const t = TRANSLATIONS[lang];
+const t = TRANSLATIONS[lang];
 
-  const initGame = useCallback((resetLevel = true) => {
+  const distToSegment = (p: {x: number, y: number}, v: {x: number, y: number}, w: {x: number, y: number}) => {
+    const l2 = Math.pow(v.x - w.x, 2) + Math.pow(v.y - w.y, 2);
+    if (l2 === 0) return Math.sqrt(Math.pow(p.x - v.x, 2) + Math.pow(p.y - v.y, 2));
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.sqrt(Math.pow(p.x - (v.x + t * (w.x - v.x)), 2) + Math.pow(p.y - (v.y + t * (w.y - v.y)), 2));
+  };
+
+  const initGame = useCallback((resetLevel = true, preserveAmmo = false) => {
     rocketsRef.current = [];
     missilesRef.current = [];
     explosionsRef.current = [];
@@ -71,23 +79,31 @@ export default function App() {
       maxHealth: 2, 
       destroyed: false 
     }));
-    towersRef.current = TOWER_POSITIONS.map(p => ({ 
-      ...p, 
-      targetX: p.x,
-      targetY: p.y,
-      ammo: p.maxAmmo, 
-      health: 5, 
-      maxHealth: 5, 
-      destroyed: false 
-    }));
+
+    const currentTowers = [...towersRef.current];
+    towersRef.current = TOWER_POSITIONS.map((p, i) => {
+      const existingTower = currentTowers.find(t => t.id === p.id);
+      return { 
+        ...p, 
+        targetX: p.x,
+        targetY: p.y,
+        ammo: (preserveAmmo && existingTower) ? existingTower.ammo : p.maxAmmo, 
+        health: 5, 
+        maxHealth: 5, 
+        destroyed: false 
+      };
+    });
+
     meteorsRef.current = [];
     planesRef.current = [];
     formationTimerRef.current = 0;
     currentFormationRef.current = 0;
     
+    // Score always resets every level as per user request
+    setScore(0);
+    scoreRef.current = 0;
+
     if (resetLevel) {
-      setScore(0);
-      scoreRef.current = 0;
       setLevel(1);
     }
   }, []);
@@ -325,6 +341,30 @@ export default function App() {
       missile.current.x += Math.cos(missile.angle) * missile.speed;
       missile.current.y += Math.sin(missile.angle) * missile.speed;
 
+      // Laser damage logic: check collision with rockets and planes along the beam
+      rocketsRef.current.forEach((rocket, rIndex) => {
+        const dist = distToSegment(rocket.current, missile.start, missile.current);
+        if (dist < 8) { // Laser hitbox
+          rocketsRef.current.splice(rIndex, 1);
+          scoreRef.current += SCORE_PER_ROCKET;
+          setScore(scoreRef.current);
+        }
+      });
+
+      planesRef.current.forEach((plane) => {
+        if (!plane.destroyed) {
+          const dist = distToSegment({ x: plane.x, y: plane.y }, missile.start, missile.current);
+          if (dist < 12) {
+            plane.health -= 0.03; // Continuous laser damage
+            if (plane.health <= 0) {
+              plane.destroyed = true;
+              scoreRef.current += 10;
+              setScore(scoreRef.current);
+            }
+          }
+        }
+      });
+
       const distToTarget = Math.sqrt(
         Math.pow(missile.target.x - missile.current.x, 2) + 
         Math.pow(missile.target.y - missile.current.y, 2)
@@ -452,7 +492,7 @@ export default function App() {
 
     spawnPlanes();
     spawnRocket();
-  }, [spawnRocket]);
+  }, [spawnRocket, level]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -672,31 +712,74 @@ export default function App() {
       }
     });
 
-    // Draw Rockets
-    ctx.lineWidth = 1;
+    // Draw Rockets (Cannonball/Shell shape)
     rocketsRef.current.forEach(rocket => {
-      ctx.strokeStyle = '#ff4b2b';
+      // Trail
+      ctx.strokeStyle = 'rgba(255, 75, 43, 0.3)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(rocket.start.x, rocket.start.y);
       ctx.lineTo(rocket.current.x, rocket.current.y);
       ctx.stroke();
 
+      ctx.save();
+      ctx.translate(rocket.current.x, rocket.current.y);
+      ctx.rotate(rocket.angle);
+
+      // Shell body
       ctx.fillStyle = '#ff4b2b';
       ctx.beginPath();
-      ctx.arc(rocket.current.x, rocket.current.y, 2, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 5, 3, 0, 0, Math.PI * 2);
       ctx.fill();
+
+      // Tip
+      ctx.fillStyle = '#ff9068';
+      ctx.beginPath();
+      ctx.arc(3, 0, 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Flame/exhaust
+      const grad = ctx.createLinearGradient(-5, 0, -12, 0);
+      grad.addColorStop(0, '#ff4b2b');
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(-4, -2);
+      ctx.lineTo(-12, 0);
+      ctx.lineTo(-4, 2);
+      ctx.fill();
+
+      ctx.restore();
     });
 
-    // Draw Missiles
+    // Draw Missiles (Laser effect)
     missilesRef.current.forEach(missile => {
-      ctx.strokeStyle = '#3490dc';
+      // Outer glow
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = '#3490dc';
+      ctx.strokeStyle = 'rgba(52, 144, 220, 0.4)';
+      ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.moveTo(missile.start.x, missile.start.y);
       ctx.lineTo(missile.current.x, missile.current.y);
       ctx.stroke();
 
+      // Inner core
+      ctx.shadowBlur = 5;
+      ctx.shadowColor = '#ffffff';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(missile.start.x, missile.start.y);
+      ctx.lineTo(missile.current.x, missile.current.y);
+      ctx.stroke();
+      
+      // Reset shadow
+      ctx.shadowBlur = 0;
+
       // Target X
       ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(missile.target.x - 5, missile.target.y - 5);
       ctx.lineTo(missile.target.x + 5, missile.target.y + 5);
@@ -746,7 +829,7 @@ export default function App() {
 
   const nextLevel = () => {
     setLevel(prev => prev + 1);
-    initGame(false);
+    initGame(false, true);
     setStatus(GameStatus.PLAYING);
   };
 
